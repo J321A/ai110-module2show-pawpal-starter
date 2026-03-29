@@ -7,12 +7,60 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+UML Class Design: 
+1. Pet - represents the pet being cared for.
+Attributes: 
+name: str
+species: str
+age: int
+special_needs: str
+Methods: 
+update-info()
+display_info()
+
+2. Task - Represent a care activity
+Attributes:
+name: str (e.g., walk, feed)
+duration: int (minutes)
+priority: int (higher = more important)
+time_constraint: optional tuple (start, end)
+Methods:
+update_task()
+is_within_time()
+
+3. Owner - Represents the user
+Attributes: 
+name: str
+available_time: int (minutes per day)
+preferences: dict
+Methods:
+update_preferences()
+
+4. Scheduler - Core logic class (the brain)
+Attributes:
+tasks: list [task]
+owner: owner
+Methods:
+generate_schedule()
+sort_tasks_by_priority()
+apply_constraints()
+
+5. DailyPlan - Represents the generated schedule.
+Attributes:
+scheduled_tasks: list [task]
+total_time: int
+Methods:
+display_plan()
+explain_plan()
+
+
+
 **b. Design changes**
 
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
 
----
+Yes. I removed DailyPlan because it is not a core data model, it's just a result/representaion of scheduling. Instead of a separate class, I let Scheduler return the plan directly, as list or structured data. 
 
 ## 2. Scheduling Logic and Tradeoffs
 
@@ -20,6 +68,16 @@
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 - How did you decide which constraints mattered most?
+
+Builds a prioritised daily care schedule for an owner and their pet.
+
+    Algorithm (greedy by priority):
+      1. Sort tasks by priority (high → low); break ties by preferred_time
+         alignment with the owner's preferred_schedule.
+      2. Walk through tasks and assign start times sequentially, stopping
+         when the owner's available time budget is exhausted.
+      3. Record a plain-English reason for each accepted or skipped task.
+
 
 **b. Tradeoffs**
 
@@ -33,14 +91,17 @@
 **a. How you used AI**
 
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
+. I used claude ai for brainstorming and refactoring. 
+
 - What kinds of prompts or questions were most helpful?
+. Providing the 4 classes core logic with attributes and methods. 
 
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
 - How did you evaluate or verify what the AI suggested?
 
----
+When ai runned the bash command with python instead of python3 for my machine.
 
 ## 4. Testing and Verification
 
