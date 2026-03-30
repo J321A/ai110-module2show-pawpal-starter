@@ -31,8 +31,10 @@ class Task:
     priority: str = "medium"          # "low" | "medium" | "high"
     preferred_time: Optional[str] = None   # e.g. "morning", "afternoon", "evening"
     notes: str = ""
+    completed: bool = False
 
     def __post_init__(self) -> None:
+        """Validate priority and duration after dataclass initialization."""
         if self.priority not in VALID_PRIORITIES:
             raise ValueError(
                 f"priority must be one of {VALID_PRIORITIES}, got '{self.priority}'"
@@ -40,12 +42,17 @@ class Task:
         if self.duration_minutes <= 0:
             raise ValueError("duration_minutes must be a positive integer")
 
+    def mark_complete(self) -> None:
+        """Mark this task as completed."""
+        self.completed = True
+
     @property
     def priority_rank(self) -> int:
         """Numeric rank for sorting (higher = more urgent)."""
         return PRIORITY_RANK[self.priority]
 
     def __str__(self) -> str:
+        """Return a concise human-readable description of the task."""
         time_hint = f" [{self.preferred_time}]" if self.preferred_time else ""
         return f"{self.title}{time_hint} ({self.duration_minutes} min, {self.priority} priority)"
 
@@ -62,8 +69,14 @@ class Pet:
     species: str                        # e.g. "dog", "cat", "rabbit"
     age_years: float = 0.0
     special_needs: list[str] = field(default_factory=list)
+    tasks: list[Task] = field(default_factory=list)
+
+    def add_task(self, task: Task) -> None:
+        """Assign a care task to this pet."""
+        self.tasks.append(task)
 
     def __str__(self) -> str:
+        """Return a concise summary of the pet including any special needs."""
         needs = f", special needs: {', '.join(self.special_needs)}" if self.special_needs else ""
         return f"{self.name} ({self.species}, {self.age_years} yr{needs})"
 
@@ -81,15 +94,18 @@ class Owner:
         available_minutes_per_day: int = 120,
         preferred_schedule: str = "morning",   # "morning" | "afternoon" | "evening"
     ) -> None:
+        """Initialize an Owner with a daily time budget and schedule preference."""
         self.name = name
         self.available_minutes_per_day = available_minutes_per_day
         self.preferred_schedule = preferred_schedule
         self.pets: list[Pet] = []
 
     def add_pet(self, pet: Pet) -> None:
+        """Register a pet under this owner's care."""
         self.pets.append(pet)
 
     def __str__(self) -> str:
+        """Return a summary of the owner, their time budget, and registered pets."""
         pet_names = ", ".join(p.name for p in self.pets) if self.pets else "no pets yet"
         return (
             f"{self.name} | available: {self.available_minutes_per_day} min/day "
@@ -111,6 +127,7 @@ class ScheduledTask:
 
     @property
     def end_minute(self) -> int:
+        """Return the minute at which this scheduled task finishes."""
         return self.start_minute + self.task.duration_minutes
 
     def time_label(self) -> str:
@@ -119,6 +136,7 @@ class ScheduledTask:
         return f"{h:02d}:{m:02d}"
 
     def __str__(self) -> str:
+        """Format the scheduled task as a single schedule-entry line."""
         return (
             f"{self.time_label()} — {self.task.title} "
             f"({self.task.duration_minutes} min) | {self.reason}"
@@ -141,6 +159,7 @@ class Scheduler:
     TIME_SLOT_START = {"morning": 7 * 60, "afternoon": 13 * 60, "evening": 18 * 60}
 
     def __init__(self, owner: Owner, pet: Pet) -> None:
+        """Bind the scheduler to a specific owner and pet."""
         self.owner = owner
         self.pet = pet
         self.plan: list[ScheduledTask] = []
@@ -215,6 +234,7 @@ class Scheduler:
         return sorted(tasks, key=sort_key)
 
     def _explain(self, task: Task) -> str:
+        """Build a plain-English reason string for why a task was scheduled."""
         parts = [f"{task.priority} priority"]
         if task.preferred_time == self.owner.preferred_schedule:
             parts.append(f"matches {self.owner.name}'s {self.owner.preferred_schedule} preference")
