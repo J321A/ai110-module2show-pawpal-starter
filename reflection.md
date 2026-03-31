@@ -84,6 +84,14 @@ Builds a prioritised daily care schedule for an owner and their pet.
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+**Tradeoff: Greedy priority ordering over true time-window optimization**
+
+The scheduler uses a greedy algorithm — it sorts tasks by priority once, then assigns them sequentially without ever going back to reconsider earlier decisions. If a high-priority 30-minute task is placed first and leaves only 10 minutes at the end of the day, a medium-priority 15-minute task gets skipped even though swapping their order would have fit both.
+
+A more optimal approach (dynamic programming or backtracking) could find the arrangement that fits the most tasks within the time budget. But that adds significant complexity for a pet care scenario where the number of daily tasks is small (typically under 20). With a small task list, the greedy result is almost always the same as the optimal result — and it is far easier to explain to a pet owner why their dog's walk was scheduled before grooming ("high priority, morning preference") than to justify a computed permutation. Readability and trust matter more here than squeezing out the last few minutes of utilization.
+
+The conflict detection added in Phase 3 partially compensates for this tradeoff: even if the scheduler does not reorder tasks to avoid overlaps, it at least surfaces warnings so the owner can intervene manually.
+
 ---
 
 ## 3. AI Collaboration

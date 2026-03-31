@@ -11,6 +11,7 @@ Four core classes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Optional
 
 
@@ -18,8 +19,9 @@ from typing import Optional
 # Task
 # ---------------------------------------------------------------------------
 
-VALID_PRIORITIES = ("low", "medium", "high")
-PRIORITY_RANK = {"low": 1, "medium": 2, "high": 3}
+VALID_PRIORITIES  = ("low", "medium", "high")
+VALID_FREQUENCIES = ("once", "daily", "weekly")
+PRIORITY_RANK     = {"low": 1, "medium": 2, "high": 3}
 
 
 @dataclass
@@ -28,23 +30,57 @@ class Task:
 
     title: str
     duration_minutes: int
-    priority: str = "medium"          # "low" | "medium" | "high"
-    preferred_time: Optional[str] = None   # e.g. "morning", "afternoon", "evening"
+    priority: str = "medium"               # "low" | "medium" | "high"
+    preferred_time: Optional[str] = None   # "morning" | "afternoon" | "evening"
     notes: str = ""
     completed: bool = False
+    frequency: str = "once"                # "once" | "daily" | "weekly"
+    due_date: Optional[date] = None        # date this task is due
 
     def __post_init__(self) -> None:
-        """Validate priority and duration after dataclass initialization."""
+        """Validate priority, frequency, and duration after dataclass initialization."""
         if self.priority not in VALID_PRIORITIES:
             raise ValueError(
                 f"priority must be one of {VALID_PRIORITIES}, got '{self.priority}'"
             )
+        if self.frequency not in VALID_FREQUENCIES:
+            raise ValueError(
+                f"frequency must be one of {VALID_FREQUENCIES}, got '{self.frequency}'"
+            )
         if self.duration_minutes <= 0:
             raise ValueError("duration_minutes must be a positive integer")
 
-    def mark_complete(self) -> None:
-        """Mark this task as completed."""
+    # ------------------------------------------------------------------
+    # Step 3 — Recurring tasks
+    # ------------------------------------------------------------------
+
+    def mark_complete(self) -> Optional[Task]:
+        """Mark this task done; return a new next-occurrence Task for recurring tasks.
+
+        Uses timedelta so that:
+          - "daily"  tasks recur tomorrow  (due_date + 1 day)
+          - "weekly" tasks recur next week (due_date + 7 days)
+          - "once"   tasks return None — no follow-up needed
+        """
         self.completed = True
+
+        if self.frequency == "once":
+            return None
+
+        base = self.due_date or date.today()
+        delta = timedelta(days=1) if self.frequency == "daily" else timedelta(weeks=1)
+        next_due = base + delta
+
+        return Task(
+            title=self.title,
+            duration_minutes=self.duration_minutes,
+            priority=self.priority,
+            preferred_time=self.preferred_time,
+            notes=self.notes,
+            completed=False,
+            frequency=self.frequency,
+            due_date=next_due,
+        )
 
     @property
     def priority_rank(self) -> int:
@@ -54,7 +90,9 @@ class Task:
     def __str__(self) -> str:
         """Return a concise human-readable description of the task."""
         time_hint = f" [{self.preferred_time}]" if self.preferred_time else ""
-        return f"{self.title}{time_hint} ({self.duration_minutes} min, {self.priority} priority)"
+        recur     = f" ({self.frequency})" if self.frequency != "once" else ""
+        due       = f" due {self.due_date}" if self.due_date else ""
+        return f"{self.title}{time_hint}{recur}{due} ({self.duration_minutes} min, {self.priority} priority)"
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +162,7 @@ class ScheduledTask:
     task: Task
     start_minute: int    # minutes from the start of the day (0 = midnight)
     reason: str = ""
+    pet_name: str = ""   # which pet this task belongs to (used for conflict detection)
 
     @property
     def end_minute(self) -> int:
@@ -153,6 +192,11 @@ class Scheduler:
       2. Walk through tasks and assign start times sequentially, stopping
          when the owner's available time budget is exhausted.
       3. Record a plain-English reason for each accepted or skipped task.
+
+    Additional capabilities (Phase 3):
+      - sort_by_time()     : re-order an existing plan by start time
+      - filter_tasks()     : filter a task list by completion status or pet name
+      - detect_conflicts() : warn about overlapping scheduled tasks
     """
 
     # Rough minute offsets for time-of-day slots
@@ -187,7 +231,10 @@ class Scheduler:
                 continue
 
             reason = self._explain(task)
-            self.plan.append(ScheduledTask(task=task, start_minute=cursor, reason=reason))
+            self.plan.append(
+                ScheduledTask(task=task, start_minute=cursor,
+                              reason=reason, pet_name=self.pet.name)
+            )
             cursor += task.duration_minutes
             used += task.duration_minutes
 
@@ -220,31 +267,115 @@ class Scheduler:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
+    # Step 2 — Sorting
+    # ------------------------------------------------------------------
+
+    def sort_by_time(self, entries: Optional[list[ScheduledTask]] = None) -> list[ScheduledTask]:
+        """Return scheduled tasks sorted by start_minute (earliest first).
+
+        Uses a lambda as the sort key so HH:MM ordering is exact rather than
+        lexicographic — start_minute is already an integer, so no parsing needed.
+        If no list is passed, sorts the current plan in place and returns it.
+        """
+        target = entries if entries is not None else self.plan
+        return sorted(target, key=lambda e: e.start_minute)
+
+    # ------------------------------------------------------------------
+    # Step 2 — Filtering
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def filter_tasks(
+        tasks: list[Task],
+        *,
+        completed: Optional[bool] = None,
+        pet_name: Optional[str] = None,
+        pet: Optional[Pet] = None,
+    ) -> list[Task]:
+        """Return a filtered subset of tasks.
+
+        Args:
+            tasks:     The task list to filter.
+            completed: If True, keep only done tasks; if False, keep only pending.
+                       Pass None to skip this filter.
+            pet_name:  Keep only tasks whose title contains this pet's name
+                       (case-insensitive). Useful when a shared task list mixes
+                       tasks for multiple pets.
+            pet:       Alternatively, pass a Pet object — its .tasks list is used
+                       to match by identity rather than name substring.
+        """
+        result = tasks
+
+        if completed is not None:
+            result = [t for t in result if t.completed == completed]
+
+        if pet is not None:
+            pet_task_ids = {id(t) for t in pet.tasks}
+            result = [t for t in result if id(t) in pet_task_ids]
+        elif pet_name is not None:
+            result = [t for t in result if pet_name.lower() in t.title.lower()]
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Step 4 — Conflict detection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def detect_conflicts(entries: list[ScheduledTask]) -> list[str]:
+        """Return warning strings for any two tasks whose time windows overlap.
+
+        Strategy: sort by start_minute, then check each consecutive pair.
+        An overlap occurs when entry[i].end_minute > entry[i+1].start_minute.
+        This is lightweight — O(n log n) — and never raises; it only warns.
+        """
+        warnings: list[str] = []
+        sorted_entries = sorted(entries, key=lambda e: e.start_minute)
+
+        for i in range(len(sorted_entries) - 1):
+            a = sorted_entries[i]
+            b = sorted_entries[i + 1]
+            if a.end_minute > b.start_minute:
+                overlap = a.end_minute - b.start_minute
+                warnings.append(
+                    f"CONFLICT: '{a.task.title}' ({a.pet_name}, "
+                    f"{a.time_label()}–{_minute_to_hhmm(a.end_minute)}) overlaps "
+                    f"'{b.task.title}' ({b.pet_name}, starts {b.time_label()}) "
+                    f"by {overlap} min"
+                )
+
+        return warnings
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     def _sort_tasks(self, tasks: list[Task]) -> list[Task]:
         """High priority first; prefer tasks matching owner's schedule."""
         preferred = self.owner.preferred_schedule
-
-        def sort_key(t: Task) -> tuple:
-            time_match = 0 if t.preferred_time == preferred else 1
-            return (-t.priority_rank, time_match)
-
-        return sorted(tasks, key=sort_key)
+        return sorted(tasks, key=lambda t: (-t.priority_rank,
+                                             0 if t.preferred_time == preferred else 1))
 
     def _explain(self, task: Task) -> str:
         """Build a plain-English reason string for why a task was scheduled."""
         parts = [f"{task.priority} priority"]
         if task.preferred_time == self.owner.preferred_schedule:
             parts.append(f"matches {self.owner.name}'s {self.owner.preferred_schedule} preference")
+        if task.frequency != "once":
+            parts.append(f"recurring {task.frequency}")
         if task.notes:
             parts.append(task.notes)
         return "; ".join(parts)
 
 
+def _minute_to_hhmm(minute: int) -> str:
+    """Convert an integer minute-of-day to an HH:MM string."""
+    h, m = divmod(minute, 60)
+    return f"{h:02d}:{m:02d}"
+
+
 # ---------------------------------------------------------------------------
-# Quick smoke-test (run: python pawpal_system.py)
+# Quick smoke-test (run: python3 pawpal_system.py)
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
