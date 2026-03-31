@@ -107,8 +107,8 @@ The 18-test suite covers all four algorithmic features (sorting, filtering, recu
 
 ## 📸 Demo
 
-<a href="Screenshot 2026-03-30 at 21.21.52.png" target="_blank">
-  <img src='Screenshot 2026-03-30 at 21.21.52.png' title='PawPal App' width='' alt='PawPal App' class='center-block' />
+<a href="/Users/user/Desktop/image1.png" target="_blank">
+  <img src='/Users/user/Desktop/image1.png' title='PawPal App' width='' alt='PawPal App' class='center-block' />
 </a>
 
 ---
